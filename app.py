@@ -60,7 +60,10 @@ def identify_bug(issue_type, summary):
 # =========================
 def detect_repeats(df):
     vec = TfidfVectorizer(stop_words='english')
-    vectors = vec.fit_transform(df['Summary'].fillna(""))
+    df['Summary'] = df['Summary'].fillna("").astype(str)
+df = df[df['Summary'].str.strip() != ""]
+
+vectors = vec.fit_transform(df['Summary']).fillna(""))
     sim = cosine_similarity(vectors)
 
     df['Repeat_Count'] = [(sim[i] > 0.8).sum() for i in range(len(sim))]
@@ -113,8 +116,8 @@ def generate_excel(df):
         df.to_excel(writer, index=False, sheet_name="Full Data")
         df['Category'].value_counts().to_excel(writer, sheet_name="Category")
         df.groupby(df['Created'].dt.to_period('M')).size().to_excel(writer, sheet_name="Trend")
-    return output
-
+output.seek(0)
+return output
 # =========================
 # 🔹 PPT EXPORT
 # =========================
@@ -142,8 +145,8 @@ def generate_ppt(df, insights, recs):
 
     output = BytesIO()
     prs.save(output)
-    return output
-
+output.seek(0)
+return output
 # =========================
 # 🔹 STREAMLIT UI
 # =========================
@@ -152,16 +155,30 @@ st.title("🚀 Jira Bug Analyzer")
 file = st.file_uploader("Upload CSV", type=["csv"])
 
 if file:
-    df = pd.read_csv(file)
+df = pd.read_csv(file)
 
+# Normalize columns
+df.columns = df.columns.str.strip().str.lower()
+
+# Standardize column names
+df.rename(columns={
+    "summary": "Summary",
+    "issue type": "Issue Type",
+    "created": "Created",
+    "reporter": "Reporter",
+    "assignee": "Assignee",
+    "account name": "Account Name",
+    "seller id": "Account Name"
+}, inplace=True)
     # Cleaning
     df['Summary'] = df['Summary'].fillna("")
-    df['Created'] = pd.to_datetime(df['Created'], errors='coerce')
-
+df['Created'] = pd.to_datetime(df['Created'], errors='coerce')
+df = df.dropna(subset=['Created'])
     # Processing
     df['Bug_Flag'] = df.apply(lambda x: identify_bug(x['Issue Type'], x['Summary']), axis=1)
-    df['Category'] = df['Summary'].apply(classify_category)
-    df = detect_repeats(df)
+df['Category'] = (
+    df['Summary'].fillna('') + " " + df.get('Description', '').fillna('')
+).apply(classify_category)    df = detect_repeats(df)
 
     # =========================
     # 🔹 FILTERS
@@ -169,8 +186,10 @@ if file:
     st.sidebar.header("Filters")
 
     if 'Account Name' in df.columns:
-        acc = st.sidebar.multiselect("Account", df['Account Name'].unique())
-        if acc:
+if 'Account Name' in df.columns:
+    acc = st.sidebar.multiselect("Account", df['Account Name'].dropna().unique())
+    if acc:
+        df = df[df['Account Name'].isin(acc)]        if acc:
             df = df[df['Account Name'].isin(acc)]
 
     rep = st.sidebar.multiselect("Reporter", df['Reporter'].unique())
